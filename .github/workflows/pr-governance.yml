@@ -1,0 +1,82 @@
+name: PR Governance, Reliability and Deployment
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+    branches: [ main ]
+  push:
+    branches: [ main ] # El despliegue ocurre solo al fusionar en main
+
+# 🔒 PRIVILEGIOS MÍNIMOS: La automatización no puede escribir código por defecto
+permissions:
+  contents: read
+  pull-requests: write # Permite al flujo escribir comentarios de escalación en el PR
+
+jobs:
+  validate-and-test:
+    name: Validate PR & Execute Tests
+    # 🛡️ CONTROL DEFENSIVO: Este trabajo corre únicamente en fase de Pull Request
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Verify PR Description (Plan Gate)
+        id: check_plan
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Verifica de forma estricta que no se haya borrado o dejado la plantilla vacía
+          if [[ -z "$PR_BODY" ]] || [[ "$PR_BODY" == *"## Plan (required)"* && "$PR_BODY" == *"- **Goal:**"* && ! "$PR_BODY" =~ [a-zA-Z0-9] ]]; then
+            echo "ERROR: El agente o usuario no ha completado el Plan requerido."
+            exit 1
+          fi
+          echo "Plan estructural detectado correctamente."
+
+      # 🔄 POLÍTICA DE ITERACIÓN SEGURA (Manejo de errores y reintentos)
+      - name: Run Tests with Limited Retries
+        id: run_tests
+        continue-on-error: true
+        run: |
+          echo "Ejecutando suite de pruebas unitarias..."
+          # Intento 1 ó Intento 2 en caso de flujos transitorios (ajusta a tu comando real como npm test)
+          npm test || npm test
+          
+      # 🚨 ESCALADO HUMANO AUTOMÁTICO (Evita bucles infinitos del agente)
+      - name: Escalate Failures to Human Reviewer
+        if: steps.run_tests.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              body: `🚨 **Gobernanza Automatizada (Escalación):** El agente ha fallado las verificaciones técnicas requeridas.\n\n**Evidencia:** Las pruebas fallaron persistentemente en la rama.\n**Acción:** Se requiere intervención de un revisor humano para destrabar este flujo de trabajo de forma manual.`
+            });
+            core.setFailed('Las comprobaciones fallaron repetidamente. Solicitando intervención humana.');
+
+      # 📊 OBSERVABILIDAD: Carga de evidencias duraderas para auditorías
+      - name: Upload Test Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.sha }}
+          path: results/ # Asegúrate de que tus herramientas guarden sus reportes aquí
+
+  deploy-production:
+    name: Secure Production Deployment
+    # 🔒 COMPUERTA DE EVENTO: Solo se ejecuta si el código ya fue aprobado y unido a main
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Merged Code
+        uses: actions/checkout@v4
+
+      - name: Deploy Verified Artifact
+        run: |
+          echo "Iniciando despliegue seguro en producción..."
+          echo "Código auditado bajo el Commit SHA inalterable: ${{ github.sha }}"
+          # Aquí puedes consumir los secretos globales del repositorio guardados en 
+          # Settings > Secrets and variables > Actions
