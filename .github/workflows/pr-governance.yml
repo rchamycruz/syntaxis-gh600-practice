@@ -41,8 +41,8 @@ jobs:
         continue-on-error: true
         run: |
           echo "Ejecutando suite de pruebas unitarias..."
-          # Intento 1 ó Intento 2 en caso de flujos transitorios (ajusta a tu comando real como npm test)
-          npm test || npm test
+          # Ejecuta Angular en modo headless para evitar depender de una ventana de navegador en CI.
+          npm test -- --watch=false --browsers=ChromeHeadless
           
       # 🚨 ESCALADO HUMANO AUTOMÁTICO (Evita bucles infinitos del agente)
       - name: Escalate Failures to Human Reviewer
