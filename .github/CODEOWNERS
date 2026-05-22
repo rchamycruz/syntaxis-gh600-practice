@@ -1,0 +1,12 @@
+# RIESGO ALTO: Infraestructura, flujos de trabajo de CI/CD y ganchos
+/.github/workflows/ @rchamycruz
+/.github/hooks/ @rchamycruz
+/infra/ @rchamycruz
+
+# RIESGO MEDIO: Código fuente y dependencias del sistema
+/src/ @rchamycruz
+package.json @rchamycruz
+
+# RIESGO BAJO: Documentación general
+/docs/ @rchamycruz
+*.md @rchamycruz
