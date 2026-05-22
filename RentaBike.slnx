@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/RentaBike.Api/RentaBike.Api.csproj" />
+    <Project Path="src/RentaBike.Application/RentaBike.Application.csproj" />
+    <Project Path="src/RentaBike.Domain/RentaBike.Domain.csproj" />
+    <Project Path="src/RentaBike.Infrastructure/RentaBike.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RentaBike.Api.BddTests/RentaBike.Api.BddTests.csproj" />
+  </Folder>
+</Solution>
