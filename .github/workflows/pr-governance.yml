@@ -49,8 +49,8 @@ jobs:
         continue-on-error: true
         run: |
           if [ -f package.json ]; then
-            echo "Ejecutando suite de pruebas unitarias..."
-            # Ejecuta Angular en modo headless para evitar depender de una ventana de navegador en CI.
+            echo "Running unit test suite..."
+            # Run Angular in headless mode to avoid depending on a browser window in CI.
             npm test -- --watch=false --browsers=ChromeHeadless
           else
             echo "No package.json found. Skipping test execution."
