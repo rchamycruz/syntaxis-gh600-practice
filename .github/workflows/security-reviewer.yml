@@ -1,0 +1,34 @@
+name: Copilot Security Reviewer Agent
+
+on:
+  workflow_dispatch: # Permite ejecutar el flujo manualmente desde la pestaña Actions
+  schedule:
+    - cron: '0 9 * * *' # Se ejecuta automáticamente todos los días a las 9:00 UTC
+  # Puedes descommentar las siguientes líneas si quieres que corra en cada Pull Request:
+  # pull_request:
+  #   branches: [ main ]
+
+permissions:
+  contents: read # Permiso mínimo para que el agente pueda leer el código del repositorio
+
+jobs:
+  agent-task:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Run Custom Copilot Agent
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx @github/copilot-cli \
+            --agent security-reviewer \
+            -p "Review this code for vulnerabilities" \
+            --no-ask-user
