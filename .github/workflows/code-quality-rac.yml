@@ -1,0 +1,241 @@
+name: Code Quality — Patrón RAC (Revisor / Auditor / Consolidador)
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [ main ]
+
+# 🔒 PRIVILEGIOS MÍNIMOS
+permissions:
+  contents: read
+  pull-requests: write  # Necesario para publicar el comentario final en el PR
+
+jobs:
+  # ─────────────────────────────────────────────
+  # JOB 1: SUB-AGENTE REVISOR
+  # Analiza los cambios del PR y genera hallazgos
+  # ─────────────────────────────────────────────
+  review:
+    name: "🔍 Revisor — Análisis de Calidad"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Necesario para que el agente vea el diff completo
+
+      - name: Run Code Reviewer Agent
+        id: reviewer
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "## 🔍 Ejecutando sub-agente Revisor..."
+          npx @github/copilot-cli \
+            --agent code-reviewer \
+            -p "Analiza los cambios de este Pull Request (#$PR_NUMBER) comparando $BASE_SHA con $HEAD_SHA. Genera el reporte de calidad de código con todos los hallazgos clasificados por severidad." \
+            --no-ask-user \
+            --output-file reviewer-report.md || true
+          
+          # Si el agente no generó archivo, crear uno vacío con nota
+          if [ ! -f reviewer-report.md ]; then
+            echo "## 🔍 Reporte del Revisor" > reviewer-report.md
+            echo "_No se detectaron hallazgos o el agente no pudo ejecutarse._" >> reviewer-report.md
+          fi
+          
+          echo "Reporte del Revisor generado:"
+          cat reviewer-report.md
+
+      - name: Upload Reviewer Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewer-report
+          path: reviewer-report.md
+          retention-days: 1
+
+  # ─────────────────────────────────────────────
+  # JOB 2: SUB-AGENTE AUDITOR
+  # Valida los hallazgos del Revisor
+  # ─────────────────────────────────────────────
+  audit:
+    name: "🔎 Auditor — Validación de Hallazgos"
+    runs-on: ubuntu-latest
+    needs: review  # Depende del Revisor
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Reviewer Report
+        uses: actions/download-artifact@v4
+        with:
+          name: reviewer-report
+
+      - name: Run Code Auditor Agent
+        id: auditor
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "## 🔎 Ejecutando sub-agente Auditor..."
+          REVIEWER_REPORT=$(cat reviewer-report.md)
+          
+          npx @github/copilot-cli \
+            --agent code-auditor \
+            -p "Valida de forma independiente los siguientes hallazgos del Revisor. Confirma, descarta o escala cada hallazgo. Identifica también cualquier problema adicional que el Revisor haya pasado por alto.
+
+REPORTE DEL REVISOR:
+---
+$REVIEWER_REPORT
+---" \
+            --no-ask-user \
+            --output-file auditor-report.md || true
+          
+          if [ ! -f auditor-report.md ]; then
+            echo "## 🔎 Reporte del Auditor" > auditor-report.md
+            echo "_No se pudo ejecutar el agente Auditor._" >> auditor-report.md
+          fi
+          
+          echo "Reporte del Auditor generado:"
+          cat auditor-report.md
+
+      - name: Upload Auditor Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: auditor-report
+          path: auditor-report.md
+          retention-days: 1
+
+  # ─────────────────────────────────────────────
+  # JOB 3: SUB-AGENTE CONSOLIDADOR
+  # Unifica ambos reportes en el reporte final
+  # ─────────────────────────────────────────────
+  consolidate:
+    name: "📊 Consolidador — Reporte Final"
+    runs-on: ubuntu-latest
+    needs: audit  # Depende del Auditor
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Reviewer Report
+        uses: actions/download-artifact@v4
+        with:
+          name: reviewer-report
+
+      - name: Download Auditor Report
+        uses: actions/download-artifact@v4
+        with:
+          name: auditor-report
+
+      - name: Run Code Consolidator Agent
+        id: consolidator
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH_NAME: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "## 📊 Ejecutando sub-agente Consolidador..."
+          REVIEWER_REPORT=$(cat reviewer-report.md)
+          AUDITOR_REPORT=$(cat auditor-report.md)
+          
+          npx @github/copilot-cli \
+            --agent code-consolidator \
+            -p "Consolida los siguientes reportes del Revisor y del Auditor en un único reporte ejecutivo final. Elimina duplicados, prioriza por impacto y genera el Markdown listo para publicar en GitHub. La rama es '$BRANCH_NAME' y el SHA es '$HEAD_SHA'.
+
+REPORTE DEL REVISOR:
+---
+$REVIEWER_REPORT
+---
+
+REPORTE DEL AUDITOR:
+---
+$AUDITOR_REPORT
+---" \
+            --no-ask-user \
+            --output-file consolidated-report.md || true
+          
+          if [ ! -f consolidated-report.md ]; then
+            {
+              echo "## 📊 Reporte de Calidad de Código — Patrón RAC"
+              echo ""
+              echo "> Generado automáticamente por el pipeline Revisor / Auditor / Consolidador"
+              echo ""
+              echo "### ⚠️ Nota"
+              echo "El agente Consolidador no pudo generar el reporte. Consulta los artefactos de los jobs anteriores."
+              echo ""
+              echo "**Revisor:**"
+              cat reviewer-report.md
+              echo ""
+              echo "**Auditor:**"
+              cat auditor-report.md
+            } > consolidated-report.md
+          fi
+          
+          echo "Reporte consolidado generado:"
+          cat consolidated-report.md
+
+      - name: Upload Consolidated Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-report
+          path: consolidated-report.md
+          retention-days: 7  # Conservar más tiempo para auditoría
+
+  # ─────────────────────────────────────────────
+  # JOB 4: PUBLICAR COMENTARIO EN EL PR
+  # ─────────────────────────────────────────────
+  report:
+    name: "💬 Publicar Reporte en PR"
+    runs-on: ubuntu-latest
+    needs: consolidate  # Depende del Consolidador
+
+    steps:
+      - name: Download Consolidated Report
+        uses: actions/download-artifact@v4
+        with:
+          name: consolidated-report
+
+      - name: Post Comment on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('consolidated-report.md', 'utf8');
+            
+            // Buscar si ya existe un comentario del bot para actualizarlo (evitar spam)
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' &&
+              c.body.includes('Reporte de Calidad de Código — Patrón RAC')
+            );
+            
+            if (botComment) {
+              // Actualizar el comentario existente
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: report,
+              });
+              console.log(`Comentario actualizado: ${botComment.id}`);
+            } else {
+              // Crear nuevo comentario
+              const { data: newComment } = await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report,
+              });
+              console.log(`Nuevo comentario creado: ${newComment.id}`);
+            }
